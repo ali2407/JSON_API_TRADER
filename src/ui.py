@@ -7,7 +7,6 @@ from textual import on
 from pathlib import Path
 import asyncio
 from typing import Optional
-from rich.text import Text
 from rich.table import Table
 
 from .trade_loader import TradeLoader
@@ -354,5 +353,13 @@ class TradingTerminalApp(App):
     def log_message(self, message: str, style: str = "white"):
         """Log a message to the activity log"""
         log_widget = self.query_one("#activity_log", Log)
-        text = Text(message, style=style)
-        log_widget.write(text)
+        # Log widget expects string, we'll use rich markup for styling
+        if style == "green":
+            formatted = f"[green]{message}[/green]"
+        elif style == "red":
+            formatted = f"[red]{message}[/red]"
+        elif style == "yellow":
+            formatted = f"[yellow]{message}[/yellow]"
+        else:
+            formatted = message
+        log_widget.write_line(formatted)
