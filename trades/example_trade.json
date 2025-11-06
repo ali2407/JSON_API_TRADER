@@ -1,0 +1,67 @@
+{
+  "tradeSetup": {
+    "symbol": "VET",
+    "direction": "SHORT",
+    "dateTime": "2025-11-06 11:41:34",
+    "marginUSD": 1000,
+    "entryPrice": 0.022153,
+    "averagePrice": 0.02362,
+    "stopLoss": 0.024699,
+    "leverage": "5x",
+    "maxLossPercent": 25
+  },
+  "orderEntries": [
+    {
+      "label": "Entry",
+      "sizeUSD": 66.67,
+      "price": 0.0222,
+      "average": 0.0222
+    },
+    {
+      "label": "RB1",
+      "sizeUSD": 133.33,
+      "price": 0.023,
+      "average": 0.0227
+    },
+    {
+      "label": "RB2",
+      "sizeUSD": 266.67,
+      "price": 0.0238,
+      "average": 0.0233
+    },
+    {
+      "label": "RB3",
+      "sizeUSD": 533.33,
+      "price": 0.0239,
+      "average": 0.0236
+    }
+  ],
+  "takeProfits": [
+    {
+      "level": "TP1",
+      "price": 0.0219,
+      "sizePercent": 20
+    },
+    {
+      "level": "TP2",
+      "price": 0.0218,
+      "sizePercent": 20
+    },
+    {
+      "level": "TP3",
+      "price": 0.0217,
+      "sizePercent": 20
+    },
+    {
+      "level": "TP4",
+      "price": 0.0216,
+      "sizePercent": 20
+    },
+    {
+      "level": "TP5",
+      "price": 0.0215,
+      "sizePercent": 20
+    }
+  ],
+  "notes": "Example SHORT trade with 4 entry levels and 5 TP levels"
+}
