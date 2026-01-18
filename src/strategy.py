@@ -72,7 +72,7 @@ class TradingStrategy:
             try:
                 order = await self.client.get_order(
                     entry.order_id,
-                    self.order_manager.symbol_ccxt
+                    self.order_manager.symbol_formatted
                 )
 
                 if order['status'] == 'closed' or order['status'] == 'filled':
@@ -108,7 +108,7 @@ class TradingStrategy:
             try:
                 order = await self.client.get_order(
                     tp.order_id,
-                    self.order_manager.symbol_ccxt
+                    self.order_manager.symbol_formatted
                 )
 
                 if order['status'] == 'closed' or order['status'] == 'filled':
@@ -131,7 +131,7 @@ class TradingStrategy:
         trade_plan = self.order_manager.trade_plan
 
         # Get current position
-        position = await self.client.get_position(self.order_manager.symbol_ccxt)
+        position = await self.client.get_position(self.order_manager.symbol_formatted)
         if not position:
             logger.warning("No position found")
             return
@@ -182,12 +182,12 @@ class TradingStrategy:
 
         # Format price
         new_sl_price = self.client.format_price(
-            self.order_manager.symbol_ccxt,
+            self.order_manager.symbol_formatted,
             new_sl_price
         )
 
         # Get remaining position size
-        position = await self.client.get_position(self.order_manager.symbol_ccxt)
+        position = await self.client.get_position(self.order_manager.symbol_formatted)
         if not position:
             logger.warning("No position found")
             return
@@ -207,7 +207,7 @@ class TradingStrategy:
 
     async def _check_position_status(self):
         """Check if position still exists (may have hit SL)"""
-        position = await self.client.get_position(self.order_manager.symbol_ccxt)
+        position = await self.client.get_position(self.order_manager.symbol_formatted)
 
         if not position or float(position.get('contracts', 0)) == 0:
             # Position closed - stop monitoring

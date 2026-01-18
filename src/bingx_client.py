@@ -82,15 +82,47 @@ class BingXClient:
             ))
         return amount
 
-    async def set_leverage(self, symbol: str, leverage: int):
-        """Set leverage for symbol"""
+    async def set_margin_mode(self, symbol: str, margin_mode: Literal["isolated", "cross"] = "isolated"):
+        """
+        Set margin mode for symbol
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+            margin_mode: 'isolated' or 'cross'
+        """
+        try:
+            result = await asyncio.to_thread(
+                self.exchange.set_margin_mode,
+                margin_mode,
+                symbol
+            )
+            logger.info(f"Set margin mode to {margin_mode} for {symbol}")
+            return result
+        except Exception as e:
+            # BingX may return error if mode is already set
+            if "already" in str(e).lower() or "same" in str(e).lower():
+                logger.info(f"Margin mode already {margin_mode} for {symbol}")
+                return None
+            logger.error(f"Failed to set margin mode: {e}")
+            raise
+
+    async def set_leverage(self, symbol: str, leverage: int, side: Literal["LONG", "SHORT", "BOTH"] = "BOTH"):
+        """
+        Set leverage for symbol
+
+        Args:
+            symbol: Trading symbol
+            leverage: Leverage value
+            side: Position side - LONG, SHORT, or BOTH (default)
+        """
         try:
             result = await asyncio.to_thread(
                 self.exchange.set_leverage,
                 leverage,
-                symbol
+                symbol,
+                {"side": side}
             )
-            logger.info(f"Set leverage to {leverage}x for {symbol}")
+            logger.info(f"Set leverage to {leverage}x for {symbol} (side={side})")
             return result
         except Exception as e:
             logger.error(f"Failed to set leverage: {e}")

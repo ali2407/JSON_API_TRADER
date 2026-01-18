@@ -1,8 +1,9 @@
 """Order execution and management engine"""
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from .bingx_client import BingXClient
+from .btcc_client import BTCCClient
 from .models import TradePlan, OrderEntry, TakeProfit, PositionState
 
 logger = logging.getLogger(__name__)
@@ -11,34 +12,48 @@ logger = logging.getLogger(__name__)
 class OrderManager:
     """Manages order execution and position tracking"""
 
-    def __init__(self, client: BingXClient):
+    def __init__(self, client: Union[BingXClient, BTCCClient], exchange: str = "bingx"):
         self.client = client
+        self.exchange = exchange.lower()
         self.trade_plan: Optional[TradePlan] = None
         self.position_state: Optional[PositionState] = None
-        self.symbol_ccxt: Optional[str] = None
+        self.symbol_formatted: Optional[str] = None
+
+    def _format_symbol(self, symbol: str) -> str:
+        """Format symbol according to exchange requirements"""
+        # Remove any existing suffixes
+        base_symbol = symbol.replace("/USDT:USDT", "").replace("USDT", "").replace("/", "").upper()
+
+        if self.exchange == "btcc":
+            # BTCC uses simple format: XRPUSDT
+            return f"{base_symbol}USDT"
+        else:
+            # BingX uses CCXT format: XRP/USDT:USDT
+            return f"{base_symbol}/USDT:USDT"
 
     def load_trade_plan(self, trade_plan: TradePlan):
         """Load a trade plan for execution"""
         self.trade_plan = trade_plan
 
-        # Convert symbol to CCXT format (e.g., VET -> VET/USDT:USDT)
+        # Convert symbol to exchange-specific format
         symbol = trade_plan.tradeSetup.symbol
-        self.symbol_ccxt = f"{symbol}/USDT:USDT"
+        self.symbol_formatted = self._format_symbol(symbol)
 
         # Initialize position state
         self.position_state = PositionState(
-            symbol=self.symbol_ccxt,
+            symbol=self.symbol_formatted,
             direction=trade_plan.tradeSetup.direction,
             current_sl_price=trade_plan.tradeSetup.stopLoss
         )
 
-        logger.info(f"Loaded trade plan for {symbol} {trade_plan.tradeSetup.direction}")
+        logger.info(f"Loaded trade plan for {symbol} ({self.symbol_formatted}) on {self.exchange.upper()} - {trade_plan.tradeSetup.direction}")
 
     async def initialize_trade(self) -> bool:
         """
         Initialize the trade by:
-        1. Setting leverage
-        2. Placing all entry/rebuy limit orders
+        1. Setting margin mode (isolated)
+        2. Setting leverage
+        3. Placing all entry/rebuy limit orders
 
         Returns:
             True if successful
@@ -49,10 +64,20 @@ class OrderManager:
         setup = self.trade_plan.tradeSetup
 
         try:
-            # Set leverage
+            # Set margin mode to isolated (BingX only)
+            if self.exchange == "bingx" and hasattr(self.client, 'set_margin_mode'):
+                await self.client.set_margin_mode(
+                    self.symbol_formatted,
+                    "isolated"
+                )
+
+            # Set leverage for the trade direction
+            # In Hedge mode, must specify LONG or SHORT (not BOTH)
+            leverage_side = setup.direction  # "LONG" or "SHORT"
             await self.client.set_leverage(
-                self.symbol_ccxt,
-                setup.leverage_value
+                self.symbol_formatted,
+                setup.leverage_value,
+                leverage_side
             )
 
             # Place all entry/rebuy orders
@@ -74,7 +99,7 @@ class OrderManager:
             try:
                 # Calculate position size in contracts
                 position_size = self.client.calculate_position_size(
-                    self.symbol_ccxt,
+                    self.symbol_formatted,
                     entry.sizeUSD,
                     entry.price,
                     setup.leverage_value
@@ -85,11 +110,14 @@ class OrderManager:
                 side = "buy" if direction == "LONG" else "sell"
 
                 # Place limit order
+                # In Hedge mode, must specify positionSide (LONG or SHORT)
+                logger.info(f"Placing order: side={side}, positionSide={direction}, price={entry.price}")
                 order = await self.client.create_limit_order(
-                    symbol=self.symbol_ccxt,
+                    symbol=self.symbol_formatted,
                     side=side,
                     amount=position_size,
-                    price=entry.price
+                    price=entry.price,
+                    params={'positionSide': direction}  # LONG or SHORT for Hedge mode
                 )
 
                 # Store order ID
@@ -119,7 +147,7 @@ class OrderManager:
             try:
                 await self.client.cancel_order(
                     self.position_state.current_sl_order_id,
-                    self.symbol_ccxt
+                    self.symbol_formatted
                 )
                 logger.info(f"Cancelled old SL order {self.position_state.current_sl_order_id}")
             except Exception as e:
@@ -128,7 +156,7 @@ class OrderManager:
         # Determine position size
         if position_size is None:
             # Get current position from exchange
-            position = await self.client.get_position(self.symbol_ccxt)
+            position = await self.client.get_position(self.symbol_formatted)
             if position:
                 position_size = float(position.get('contracts', 0))
             else:
@@ -145,7 +173,7 @@ class OrderManager:
         try:
             # Place new stop loss order
             order = await self.client.create_stop_loss_order(
-                symbol=self.symbol_ccxt,
+                symbol=self.symbol_formatted,
                 side=sl_side,
                 amount=position_size,
                 stop_price=new_sl_price
@@ -170,7 +198,7 @@ class OrderManager:
         direction = setup.direction
 
         # Get current position to calculate TP sizes
-        position = await self.client.get_position(self.symbol_ccxt)
+        position = await self.client.get_position(self.symbol_formatted)
         if not position:
             logger.warning("No position found, cannot place TP orders")
             return
@@ -185,7 +213,7 @@ class OrderManager:
             try:
                 # Calculate TP size
                 tp_size = total_contracts * (tp.sizePercent / 100.0)
-                tp_size = self.client.format_amount(self.symbol_ccxt, tp_size)
+                tp_size = self.client.format_amount(self.symbol_formatted, tp_size)
 
                 # Determine order side (opposite of entry)
                 # LONG position = sell TP, SHORT position = buy TP
@@ -193,7 +221,7 @@ class OrderManager:
 
                 # Place TP limit order with reduceOnly
                 order = await self.client.create_limit_order(
-                    symbol=self.symbol_ccxt,
+                    symbol=self.symbol_formatted,
                     side=side,
                     amount=tp_size,
                     price=tp.price,
@@ -213,7 +241,7 @@ class OrderManager:
     async def cancel_all_orders(self, symbol: Optional[str] = None):
         """Cancel all open orders for the symbol"""
         try:
-            symbol = symbol or self.symbol_ccxt
+            symbol = symbol or self.symbol_formatted
             orders = await self.client.get_open_orders(symbol)
 
             for order in orders:
@@ -230,8 +258,8 @@ class OrderManager:
     async def close_entire_position(self):
         """Close the entire position immediately"""
         try:
-            await self.client.close_position(self.symbol_ccxt)
-            logger.info(f"Closed entire position for {self.symbol_ccxt}")
+            await self.client.close_position(self.symbol_formatted)
+            logger.info(f"Closed entire position for {self.symbol_formatted}")
         except Exception as e:
             logger.error(f"Failed to close position: {e}")
             raise
